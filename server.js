@@ -40,18 +40,19 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/health", async (req, res) => {
+app.post("/health", async (req, res) => {
   const start = Date.now();
 
   try {
     await connectDB();
 
-    // Verify that MongoDB responds to a ping.
+    // Ping MongoDB Atlas
     await mongoose.connection.db.admin().ping();
 
     const responseTimeMs = Date.now() - start;
 
-    await PingLog.create({
+    // Save successful ping to MongoDB
+    const pingLog = await PingLog.create({
       status: "success",
       responseTimeMs,
       message: "MongoDB is reachable",
@@ -62,11 +63,12 @@ app.get("/health", async (req, res) => {
       message: "MongoDB ping successful",
       database: mongoose.connection.name,
       responseTimeMs,
+      logId: pingLog._id,
     });
   } catch (error) {
     console.error("MongoDB ping failed:", error.message);
 
-    // Save a failure record only if MongoDB is available.
+    // Record failure if MongoDB is still available
     try {
       if (
         mongoose.connection.readyState === 1 &&
@@ -88,6 +90,5 @@ app.get("/health", async (req, res) => {
     });
   }
 });
-
 // Vercel handles the HTTP server.
 module.exports = app;
