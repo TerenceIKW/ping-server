@@ -11,7 +11,7 @@ app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-// Reuse the connection during warm Vercel invocations.
+// Reuse the MongoDB connection across warm Vercel invocations.
 let connectionPromise = null;
 
 async function connectDB() {
@@ -46,27 +46,30 @@ async function connectDB() {
   return mongoose.connection;
 }
 
-// Basic API check; this does not ping MongoDB.
+// GET / - basic API status.
 app.get("/", (req, res) => {
   res.status(200).json({
     status: "ok",
     message: "ResQMe API is running",
+    endpoints: {
+      default: "POST /",
+      health: "POST /health",
+    },
   });
 });
 
-// POST /health: ping MongoDB and record the result.
-app.post("/health", async (req, res) => {
+// Shared handler for POST / and POST /health.
+async function healthCheck(req, res) {
   const start = Date.now();
 
   try {
     await connectDB();
 
-    // Send a real ping command to MongoDB.
+    // Verify that MongoDB responds to a real ping.
     await mongoose.connection.db.admin().ping();
 
     const responseTimeMs = Date.now() - start;
 
-    // Store the successful health check.
     const pingLog = await PingLog.create({
       status: "success",
       responseTimeMs,
@@ -90,7 +93,7 @@ app.post("/health", async (req, res) => {
       readyState: mongoose.connection.readyState,
     });
 
-    // A failure record can only be saved if MongoDB is still usable.
+    // Record failures only when MongoDB is usable.
     try {
       if (
         mongoose.connection.readyState === 1 &&
@@ -103,13 +106,9 @@ app.post("/health", async (req, res) => {
         });
       }
     } catch (loggingError) {
-      console.error(
-        "Could not save ping log:",
-        loggingError.message
-      );
+      console.error("Could not save ping log:", loggingError.message);
     }
 
-    // Return diagnostic details without exposing credentials.
     const isConfigurationError =
       error.message === "MONGODB_URI is not configured";
 
@@ -118,11 +117,17 @@ app.post("/health", async (req, res) => {
       message: "MongoDB ping failed",
       reason: isConfigurationError
         ? error.message
-        : "Check Vercel function logs for the underlying error",
+        : "Check server logs for the underlying error",
       responseTimeMs,
     });
   }
-});
+}
 
-// Vercel invokes the exported Express application.
+// POST to the default application URL.
+app.post("/", healthCheck);
+
+// POST to the dedicated health endpoint.
+app.post("/health", healthCheck);
+
+// Export the Express app for Vercel.
 module.exports = app;
