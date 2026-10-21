@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const pingLogSchema = new mongoose.Schema({
@@ -7,20 +6,12 @@ const pingLogSchema = new mongoose.Schema({
     enum: ["success", "failure"],
     required: true,
   },
-  responseTimeMs: {
-    type: Number,
-    required: true,
-  },
-  message: {
-    type: String,
-    required: true,
-  },
+  responseTimeMs: Number,
+  message: String,
   checkedAt: {
     type: Date,
     default: Date.now,
   },
 });
 
-module.exports =
-  mongoose.models.PingLog ||
-  mongoose.model("PingLog", pingLogSchema);
+module.exports = mongoose.model("PingLog", pingLogSchema);
