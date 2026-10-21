@@ -1,32 +1,56 @@
+
 require("dotenv").config();
 
-const mongoose = require("mongoose");
 const express = require("express");
+const mongoose = require("mongoose");
 const PingLog = require("./models/PingLog.js");
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+
+app.use(express.json());
+
 const MONGODB_URI = process.env.MONGODB_URI;
+
+// Reuse the connection across Vercel invocations.
+let connectionPromise;
+
+async function connectDB() {
+  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+    return;
+  }
+
+  if (!MONGODB_URI) {
+    throw new Error("MONGODB_URI is not configured in Vercel");
+  }
+
+  if (!connectionPromise) {
+    connectionPromise = mongoose.connect(MONGODB_URI).catch((error) => {
+      connectionPromise = null;
+      throw error;
+    });
+  }
+
+  await connectionPromise;
+}
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "ResQMe API is running",
+  });
+});
 
 app.get("/health", async (req, res) => {
   const start = Date.now();
 
   try {
-    // Ensure MongoDB is connected
-    if (mongoose.connection.readyState !== 1) {
-      if (!MONGODB_URI) {
-        throw new Error("MONGODB_URI is not configured");
-      }
+    await connectDB();
 
-      await mongoose.connect(MONGODB_URI);
-    }
-
-    // Ping MongoDB
+    // Verify that MongoDB responds to a ping.
     await mongoose.connection.db.admin().ping();
 
     const responseTimeMs = Date.now() - start;
 
-    // Store successful ping
     await PingLog.create({
       status: "success",
       responseTimeMs,
@@ -42,9 +66,12 @@ app.get("/health", async (req, res) => {
   } catch (error) {
     console.error("MongoDB ping failed:", error.message);
 
-    // Record failure only if MongoDB is still connected
+    // Save a failure record only if MongoDB is available.
     try {
-      if (mongoose.connection.readyState === 1) {
+      if (
+        mongoose.connection.readyState === 1 &&
+        mongoose.connection.db
+      ) {
         await PingLog.create({
           status: "failure",
           responseTimeMs: Date.now() - start,
@@ -62,25 +89,5 @@ app.get("/health", async (req, res) => {
   }
 });
 
-async function startServer() {
-  try {
-    if (!MONGODB_URI) {
-      throw new Error("MONGODB_URI is missing from your .env file");
-    }
-
-    await mongoose.connect(MONGODB_URI);
-    console.log("MongoDB connected successfully");
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
-    });
-  } catch (error) {
-    console.error("Server startup failed:", error.message);
-    process.exit(1);
-  }
-}
-
-startServer();
-
+// Vercel handles the HTTP server.
 module.exports = app;
